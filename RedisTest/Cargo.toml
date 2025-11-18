@@ -1,0 +1,12 @@
+[package]
+name = "RedisTest"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+redis = "1.0.0-rc.3"
+prost = "0.14.1"
+
+[build-dependencies]
+prost-build = "0.14.1"

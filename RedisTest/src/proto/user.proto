@@ -1,0 +1,42 @@
+﻿syntax = "proto3";
+
+package redis_demo;
+
+// --- Enums ---
+
+// Defines the user's subscription status.
+enum SubscriptionLevel {
+  LEVEL_UNSPECIFIED = 0;
+  LEVEL_FREE = 1;
+  LEVEL_PREMIUM = 2;
+  LEVEL_FAMILY = 3;
+}
+
+// --- Structures ---
+
+// Represents a music genre with metadata.
+message Genre {
+  string id = 1;
+  string name = 2;
+  int32 listeners = 3;
+}
+
+// Full user profile data.
+message UserProfile {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  SubscriptionLevel subscription_level = 4;
+  string history_key = 5;
+}
+
+// Represents a user's listening history (a list of Genres).
+message ListenHistory {
+  repeated Genre genres = 1;
+}
+
+// Account data for atomic credit/coin transfers.
+message CreditWallet {
+  int32 coin_balance = 1;
+  int32 credit_balance = 2;
+}
