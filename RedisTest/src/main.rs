@@ -109,11 +109,31 @@ fn read_wallet(con: &mut impl Commands, user_id: &str) -> Result<CreditWallet, B
     decode_protobuf(bytes)
 }
 
+fn create_wallet(con: &mut impl Commands, user_id: &str) -> Result<CreditWallet, Box<dyn Error>> {
+    let key = format!("user:{}:wallet", user_id);
+    // Initial balance: 100 coins and 0 credits for new users
+    let wallet = CreditWallet {
+        coin_balance: 100,
+        credit_balance: 0,
+    };
+    let mut buf = Vec::new();
+    wallet.encode(&mut buf)?;
+    let _: () = con.set(&key, buf)?;
+    Ok(wallet)
+}
+
 fn transfer_credit_transaction(
     con: &mut impl Commands,
     user_id: &str,
     transfer_amount: i32,
 ) -> Result<CreditWallet, Box<dyn Error>> {
+    if transfer_amount <= 0 {
+        return Err(Box::new(IoError::new(
+            ErrorKind::InvalidInput,
+            "Transfer amount must be positive",
+        )));
+    }
+
     let balance_key = format!("user:{}:wallet", user_id);
     let final_wallet: CreditWallet = redis::transaction(con, &[&balance_key], |con, pipe| {
         let bytes: Vec<u8> = con.get(&balance_key)?;
@@ -126,6 +146,15 @@ fn transfer_credit_transaction(
                 ).into());
             }
         };
+
+        if current.coin_balance < transfer_amount {
+            return Err(IoError::new(
+                ErrorKind::InvalidInput,
+                format!("Insufficient coins. Current balance: {}, requested: {}",
+                        current.coin_balance, transfer_amount),
+            ).into());
+        }
+
         current.coin_balance -= transfer_amount;
         current.credit_balance += transfer_amount;
         let mut new_buf = Vec::new();
@@ -200,13 +229,21 @@ async fn create_user_profile(
         subscription_level: payload.subscription_level,
         history_key: format!("{}:history", payload.id),
     };
+
     match create_profile(&mut *con, profile) {
-        Ok(p) => Ok(Json(UserProfileJson {
-            id: p.id,
-            username: p.username,
-            email: p.email,
-            subscription_level: p.subscription_level,
-        })),
+        Ok(p) => {
+            // Create initial wallet with starting balance
+            if let Err(_) = create_wallet(&mut *con, &p.id) {
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+
+            Ok(Json(UserProfileJson {
+                id: p.id,
+                username: p.username,
+                email: p.email,
+                subscription_level: p.subscription_level,
+            }))
+        }
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
@@ -260,7 +297,14 @@ async fn transfer_credits(
             coin_balance: wallet.coin_balance,
             credit_balance: wallet.credit_balance,
         })),
-        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(e) => {
+            let error_msg = e.to_string();
+            if error_msg.contains("Insufficient coins") || error_msg.contains("must be positive") {
+                Err(StatusCode::BAD_REQUEST)
+            } else {
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
     }
 }
 
